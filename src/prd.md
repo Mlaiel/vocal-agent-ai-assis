@@ -38,6 +38,16 @@
 - **Safety Alerts**: Quick emergency audio notifications
 - **High Contrast Design**: Optimized visual design for users with partial vision
 - **Keyboard Navigation**: Full accessibility compliance
+- **Voice Commands**: Hands-free navigation and control for complete accessibility
+
+### Voice Commands for Hands-Free Navigation
+- **Navigation**: "go to voice", "go to vision", "go to actions", "go to settings"
+- **Voice Control**: "start listening", "stop listening", "read text", "stop reading"
+- **Content**: "read transcript", "clear transcript", "summarize"
+- **Vision**: "start camera", "stop camera", "capture image", "analyze image", "describe environment"
+- **Settings**: "speech faster", "speech slower", "pitch higher", "pitch lower"
+- **Help**: "help", "help commands", "what can you do"
+- **Safety**: "safety alert"
 
 ## Design Direction
 

@@ -35,6 +35,13 @@ interface VoiceSettings {
   pitch: number
   voice: string
   autoRead: boolean
+  voiceCommands: boolean
+}
+
+interface VoiceCommand {
+  command: string
+  action: () => void
+  description: string
 }
 
 export default function App() {
@@ -52,15 +59,19 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
+  const [isListeningForCommands, setIsListeningForCommands] = useState(false)
+  const [currentTab, setCurrentTab] = useState('voice')
   
   const [settings, setSettings] = useKV<VoiceSettings>('voice-settings', {
     rate: 1,
     pitch: 1,
     voice: '',
-    autoRead: true
+    autoRead: true,
+    voiceCommands: true
   })
 
   const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const commandRecognitionRef = useRef<SpeechRecognition | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -72,6 +83,8 @@ export default function App() {
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       setIsRecognitionSupported(true)
       const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition
+      
+      // Setup regular speech recognition
       recognitionRef.current = new SpeechRecognition()
       
       if (recognitionRef.current) {
@@ -103,6 +116,37 @@ export default function App() {
           announceToUser('Stopped listening')
         }
       }
+
+      // Setup command recognition
+      commandRecognitionRef.current = new SpeechRecognition()
+      
+      if (commandRecognitionRef.current) {
+        commandRecognitionRef.current.continuous = true
+        commandRecognitionRef.current.interimResults = false
+        commandRecognitionRef.current.lang = 'en-US'
+
+        commandRecognitionRef.current.onresult = (event) => {
+          const command = event.results[event.results.length - 1][0].transcript.toLowerCase().trim()
+          console.log('Voice command received:', command)
+          handleVoiceCommand(command)
+        }
+
+        commandRecognitionRef.current.onerror = (event) => {
+          console.error('Command recognition error:', event.error)
+          setIsListeningForCommands(false)
+        }
+
+        commandRecognitionRef.current.onend = () => {
+          // Auto-restart command listening if enabled
+          if (settings.voiceCommands && isListeningForCommands) {
+            setTimeout(() => {
+              if (commandRecognitionRef.current) {
+                commandRecognitionRef.current.start()
+              }
+            }, 100)
+          }
+        }
+      }
     }
 
     if ('speechSynthesis' in window) {
@@ -131,9 +175,137 @@ export default function App() {
 
     // Announce app ready
     setTimeout(() => {
-      announceToUser('Vocal Agent ready. Use the microphone button to start voice input, or enter text to have it read aloud.')
+      announceToUser('Vocal Agent ready. Say "help commands" to learn voice commands, or use the interface directly.')
     }, 1000)
   }, [])
+
+  // Effect to handle voice commands state
+  useEffect(() => {
+    if (settings.voiceCommands && !isListeningForCommands) {
+      startCommandListening()
+    } else if (!settings.voiceCommands && isListeningForCommands) {
+      stopCommandListening()
+    }
+  }, [settings.voiceCommands])
+
+  const voiceCommands: VoiceCommand[] = [
+    // Navigation commands
+    { command: 'go to voice', action: () => { setCurrentTab('voice'); announceToUser('Switched to voice tab') }, description: 'Switch to voice tab' },
+    { command: 'go to vision', action: () => { setCurrentTab('vision'); announceToUser('Switched to vision tab') }, description: 'Switch to vision tab' },
+    { command: 'go to actions', action: () => { setCurrentTab('actions'); announceToUser('Switched to actions tab') }, description: 'Switch to actions tab' },
+    { command: 'go to settings', action: () => { setCurrentTab('settings'); announceToUser('Switched to settings tab') }, description: 'Switch to settings tab' },
+    
+    // Voice control commands
+    { command: 'start listening', action: startListening, description: 'Start speech to text' },
+    { command: 'stop listening', action: stopListening, description: 'Stop speech to text' },
+    { command: 'read text', action: () => speakText(textToRead), description: 'Read the entered text aloud' },
+    { command: 'stop reading', action: stopSpeaking, description: 'Stop current speech' },
+    { command: 'read transcript', action: () => speakText(transcript), description: 'Read the transcript aloud' },
+    { command: 'clear transcript', action: clearTranscript, description: 'Clear the transcript' },
+    { command: 'summarize', action: summarizeContent, description: 'Summarize and read content' },
+    
+    // Vision commands
+    { command: 'start camera', action: startCamera, description: 'Start the camera' },
+    { command: 'stop camera', action: stopCamera, description: 'Stop the camera' },
+    { command: 'capture image', action: captureImage, description: 'Capture and analyze image' },
+    { command: 'analyze image', action: analyzeImage, description: 'Analyze selected image' },
+    { command: 'describe environment', action: describeEnvironment, description: 'Describe current environment' },
+    
+    // Safety and quick actions
+    { command: 'safety alert', action: sendSafetyAlert, description: 'Send safety alert' },
+    { command: 'test voice', action: testVoiceSettings, description: 'Test current voice settings' },
+    
+    // Settings commands
+    { command: 'speech faster', action: () => { 
+      const newRate = Math.min(settings.rate + 0.2, 2.0)
+      setSettings(prev => ({ ...prev, rate: newRate }))
+      announceToUser(`Speech rate increased to ${newRate.toFixed(1)}`)
+    }, description: 'Increase speech rate' },
+    { command: 'speech slower', action: () => { 
+      const newRate = Math.max(settings.rate - 0.2, 0.5)
+      setSettings(prev => ({ ...prev, rate: newRate }))
+      announceToUser(`Speech rate decreased to ${newRate.toFixed(1)}`)
+    }, description: 'Decrease speech rate' },
+    { command: 'pitch higher', action: () => { 
+      const newPitch = Math.min(settings.pitch + 0.2, 2.0)
+      setSettings(prev => ({ ...prev, pitch: newPitch }))
+      announceToUser(`Speech pitch increased to ${newPitch.toFixed(1)}`)
+    }, description: 'Increase speech pitch' },
+    { command: 'pitch lower', action: () => { 
+      const newPitch = Math.max(settings.pitch - 0.2, 0.5)
+      setSettings(prev => ({ ...prev, pitch: newPitch }))
+      announceToUser(`Speech pitch decreased to ${newPitch.toFixed(1)}`)
+    }, description: 'Decrease speech pitch' },
+    
+    // Help commands
+    { command: 'help', action: showHelp, description: 'Show general help' },
+    { command: 'help commands', action: listVoiceCommands, description: 'List all voice commands' },
+    { command: 'what can you do', action: showCapabilities, description: 'Describe app capabilities' },
+  ]
+
+  const handleVoiceCommand = (command: string) => {
+    if (!settings.voiceCommands) return
+
+    // Find matching command (case insensitive, partial matching)
+    const matchedCommand = voiceCommands.find(cmd => 
+      command.includes(cmd.command) || 
+      cmd.command.includes(command) ||
+      // Handle variations
+      (cmd.command === 'go to voice' && (command.includes('voice tab') || command.includes('speech'))) ||
+      (cmd.command === 'go to vision' && (command.includes('vision tab') || command.includes('camera') || command.includes('image'))) ||
+      (cmd.command === 'go to actions' && (command.includes('actions tab') || command.includes('quick actions'))) ||
+      (cmd.command === 'go to settings' && (command.includes('settings tab') || command.includes('preferences'))) ||
+      (cmd.command === 'start listening' && command.includes('listen')) ||
+      (cmd.command === 'read text' && (command.includes('read') && !command.includes('transcript'))) ||
+      (cmd.command === 'help commands' && command.includes('commands'))
+    )
+
+    if (matchedCommand) {
+      console.log('Executing voice command:', matchedCommand.command)
+      announceToUser(`Executing: ${matchedCommand.command}`)
+      matchedCommand.action()
+    } else {
+      console.log('Unknown voice command:', command)
+      announceToUser('Unknown command. Say "help commands" to hear available commands.')
+    }
+  }
+
+  const startCommandListening = () => {
+    if (commandRecognitionRef.current && settings.voiceCommands) {
+      setIsListeningForCommands(true)
+      try {
+        commandRecognitionRef.current.start()
+        console.log('Voice commands activated')
+      } catch (error) {
+        console.error('Failed to start command recognition:', error)
+        setIsListeningForCommands(false)
+      }
+    }
+  }
+
+  const stopCommandListening = () => {
+    if (commandRecognitionRef.current) {
+      commandRecognitionRef.current.stop()
+      setIsListeningForCommands(false)
+      console.log('Voice commands deactivated')
+    }
+  }
+
+  const showHelp = () => {
+    const helpText = `Welcome to Vocal Agent. This is an AI voice assistant designed for accessibility. 
+    You can navigate using voice commands, convert speech to text, read text aloud, analyze images, 
+    and get environmental descriptions. Say "help commands" to hear all available voice commands.`
+    speakText(helpText)
+  }
+
+  const listVoiceCommands = () => {
+    const commandsList = voiceCommands
+      .map(cmd => `${cmd.command}: ${cmd.description}`)
+      .join('. ')
+    
+    const introText = `Here are the available voice commands: ${commandsList}`
+    speakText(introText)
+  }
 
   const announceToUser = (message: string) => {
     if (synthRef.current && isSpeechSupported) {
@@ -430,7 +602,7 @@ export default function App() {
         </Alert>
       )}
 
-      <Tabs defaultValue="voice" className="w-full">
+      <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="voice">Voice</TabsTrigger>
           <TabsTrigger value="vision">Vision</TabsTrigger>
@@ -681,6 +853,26 @@ export default function App() {
                   Safety Alert
                 </Button>
 
+                <Button
+                  variant="secondary"
+                  onClick={listVoiceCommands}
+                  disabled={!isSpeechSupported}
+                  aria-label="List all voice commands"
+                >
+                  <Volume2 className="h-4 w-4 mr-2" />
+                  Voice Commands Help
+                </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={showCapabilities}
+                  disabled={!isSpeechSupported}
+                  aria-label="Describe app capabilities"
+                >
+                  <Volume2 className="h-4 w-4 mr-2" />
+                  What Can You Do?
+                </Button>
+
                 <div className="flex items-center space-x-2">
                   <Switch
                     id="auto-read"
@@ -801,6 +993,42 @@ export default function App() {
                 />
               </div>
 
+              {/* Voice Commands Setting */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label htmlFor="voice-commands-setting">Voice Commands</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Enable hands-free navigation with voice commands
+                  </p>
+                </div>
+                <Switch
+                  id="voice-commands-setting"
+                  checked={settings.voiceCommands}
+                  onCheckedChange={(checked) => {
+                    setSettings(prev => ({ ...prev, voiceCommands: checked }))
+                    announceToUser(`Voice commands ${checked ? 'enabled' : 'disabled'}`)
+                    if (checked) {
+                      announceToUser('Say "help commands" to learn available voice commands')
+                    }
+                  }}
+                />
+              </div>
+
+              {/* Voice Commands Status */}
+              {settings.voiceCommands && (
+                <div className="bg-accent/10 p-3 rounded-md border border-accent/20">
+                  <div className="flex items-center gap-2 text-sm">
+                    <div className={`w-2 h-2 rounded-full ${isListeningForCommands ? 'bg-green-500' : 'bg-gray-400'}`} />
+                    <span>
+                      Voice Commands: {isListeningForCommands ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Say "help commands" to hear all available voice commands
+                  </p>
+                </div>
+              )}
+
               {/* Test Voice Settings */}
               <div className="pt-4 border-t">
                 <Button
@@ -823,7 +1051,8 @@ export default function App() {
                     rate: 1,
                     pitch: 1,
                     voice: availableVoices.find(v => v.lang.startsWith('en'))?.name || '',
-                    autoRead: true
+                    autoRead: true,
+                    voiceCommands: true
                   })
                   announceToUser('Voice settings reset to defaults')
                 }}
