@@ -390,6 +390,8 @@ export default function App() {
     speakText(testText)
     announceToUser('Testing voice settings')
   }
+
+  const describeEnvironment = async () => {
     announceToUser('Starting environmental description...')
     
     if (isCameraActive && videoRef.current) {
