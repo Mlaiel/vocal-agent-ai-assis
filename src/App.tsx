@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Microphone, Speaker, AlertTriangle, Play, Pause, Square, Volume2, Camera, Eye, Upload } from '@phosphor-icons/react'
-import { useKV } from './hooks/useKV'
+import { useKV } from '@/hooks/useKV'
 import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
 import '@/lib/spark-fallback'
@@ -36,6 +36,7 @@ interface VoiceSettings {
 }
 
 export default function App() {
+  // All hooks declared at the top level - no conditional hooks
   const [isListening, setIsListening] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [transcript, setTranscript] = useState('')
@@ -215,8 +216,13 @@ export default function App() {
     }
 
     try {
-      const prompt = spark.llmPrompt`Please provide a clear, concise summary of this content suitable for audio narration: ${textToRead}`
-      const summary = await spark.llm(prompt)
+      // Ensure spark is available
+      if (!window.spark) {
+        throw new Error('Spark API not available')
+      }
+      
+      const prompt = window.spark.llmPrompt`Please provide a clear, concise summary of this content suitable for audio narration: ${textToRead}`
+      const summary = await window.spark.llm(prompt)
       
       if (summary) {
         speakText(`Summary: ${summary}`)
@@ -263,7 +269,12 @@ export default function App() {
       reader.onload = async (e) => {
         const base64Data = e.target?.result as string
         
-        const prompt = spark.llmPrompt`You are an AI assistant helping visually impaired users. Please provide a detailed, clear description of this image. Focus on:
+        // Ensure spark is available
+        if (!window.spark) {
+          throw new Error('Spark API not available')
+        }
+        
+        const prompt = window.spark.llmPrompt`You are an AI assistant helping visually impaired users. Please provide a detailed, clear description of this image. Focus on:
         1. What objects, people, or scenes are present
         2. Their positions and relationships
         3. Colors, lighting, and mood
@@ -272,7 +283,7 @@ export default function App() {
         
         Keep the description conversational and helpful for someone who cannot see the image. Image data: ${base64Data}`
         
-        const description = await spark.llm(prompt)
+        const description = await window.spark.llm(prompt)
         
         if (description) {
           const fullDescription = `Image description: ${description}`
@@ -369,7 +380,7 @@ export default function App() {
     }
   }
 
-    return (
+  return (
     <div className="min-h-screen bg-background p-4 space-y-6">
       <Toaster />
       <header className="text-center space-y-2">
