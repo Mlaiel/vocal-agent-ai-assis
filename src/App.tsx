@@ -15,9 +15,10 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Microphone, Speaker, AlertTriangle, Play, Pause, Square, Volume2, Camera, Eye, Upload } from '@phosphor-icons/react'
-import { useKV } from '@github/spark/hooks'
+import { useKV } from './hooks/useKV'
 import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
+import '@/lib/spark-fallback'
 
 // Extend window interface for Web Speech API
 declare global {
