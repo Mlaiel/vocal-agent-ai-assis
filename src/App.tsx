@@ -14,7 +14,9 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Microphone, Speaker, AlertTriangle, Play, Pause, Square, Volume2, Camera, Eye, Upload } from '@phosphor-icons/react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Slider } from '@/components/ui/slider'
+import { Microphone, Speaker, AlertTriangle, Play, Pause, Square, Volume2, Camera, Eye, Upload, Gear } from '@phosphor-icons/react'
 import { useKV } from '@/hooks/useKV'
 import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
@@ -49,6 +51,7 @@ export default function App() {
   const [imagePreview, setImagePreview] = useState<string>('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isCameraActive, setIsCameraActive] = useState(false)
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
   
   const [settings, setSettings] = useKV<VoiceSettings>('voice-settings', {
     rate: 1,
@@ -105,6 +108,25 @@ export default function App() {
     if ('speechSynthesis' in window) {
       setIsSpeechSupported(true)
       synthRef.current = window.speechSynthesis
+      
+      // Load available voices
+      const loadVoices = () => {
+        const voices = synthRef.current?.getVoices() || []
+        setAvailableVoices(voices)
+        
+        // Set default voice if none selected
+        if (!settings.voice && voices.length > 0) {
+          const defaultVoice = voices.find(voice => voice.lang.startsWith('en')) || voices[0]
+          setSettings(prev => ({ ...prev, voice: defaultVoice.name }))
+        }
+      }
+      
+      // Voices might not be available immediately
+      if (synthRef.current.getVoices().length > 0) {
+        loadVoices()
+      } else {
+        synthRef.current.addEventListener('voiceschanged', loadVoices)
+      }
     }
 
     // Announce app ready
@@ -363,7 +385,11 @@ export default function App() {
     }
   }
 
-  const describeEnvironment = async () => {
+  const testVoiceSettings = () => {
+    const testText = "This is a test of your voice settings. Rate, pitch, and voice have been applied."
+    speakText(testText)
+    announceToUser('Testing voice settings')
+  }
     announceToUser('Starting environmental description...')
     
     if (isCameraActive && videoRef.current) {
@@ -403,10 +429,11 @@ export default function App() {
       )}
 
       <Tabs defaultValue="voice" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="voice">Voice</TabsTrigger>
           <TabsTrigger value="vision">Vision</TabsTrigger>
           <TabsTrigger value="actions">Actions</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="voice" className="space-y-6">
@@ -663,6 +690,146 @@ export default function App() {
                   <Label htmlFor="auto-read">Auto-read new content</Label>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="settings" className="space-y-6">
+          {/* Voice Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Gear className="h-5 w-5" />
+                Voice Settings
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Voice Selection */}
+              <div className="space-y-2">
+                <Label htmlFor="voice-select">Voice:</Label>
+                <Select
+                  value={settings.voice}
+                  onValueChange={(value) => {
+                    setSettings(prev => ({ ...prev, voice: value }))
+                    announceToUser(`Voice changed to ${value}`)
+                  }}
+                >
+                  <SelectTrigger id="voice-select">
+                    <SelectValue placeholder="Select a voice" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableVoices.map((voice) => (
+                      <SelectItem key={voice.name} value={voice.name}>
+                        {voice.name} ({voice.lang})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Speech Rate */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="rate-slider">Speech Rate:</Label>
+                  <span className="text-sm text-muted-foreground">
+                    {settings.rate.toFixed(1)}x
+                  </span>
+                </div>
+                <Slider
+                  id="rate-slider"
+                  value={[settings.rate]}
+                  onValueChange={([value]) => {
+                    setSettings(prev => ({ ...prev, rate: value }))
+                  }}
+                  min={0.5}
+                  max={2.0}
+                  step={0.1}
+                  className="w-full"
+                  aria-label="Speech rate"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Slow (0.5x)</span>
+                  <span>Normal (1.0x)</span>
+                  <span>Fast (2.0x)</span>
+                </div>
+              </div>
+
+              {/* Speech Pitch */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="pitch-slider">Speech Pitch:</Label>
+                  <span className="text-sm text-muted-foreground">
+                    {settings.pitch.toFixed(1)}
+                  </span>
+                </div>
+                <Slider
+                  id="pitch-slider"
+                  value={[settings.pitch]}
+                  onValueChange={([value]) => {
+                    setSettings(prev => ({ ...prev, pitch: value }))
+                  }}
+                  min={0.5}
+                  max={2.0}
+                  step={0.1}
+                  className="w-full"
+                  aria-label="Speech pitch"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Low (0.5)</span>
+                  <span>Normal (1.0)</span>
+                  <span>High (2.0)</span>
+                </div>
+              </div>
+
+              {/* Auto-read Setting */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label htmlFor="auto-read-setting">Auto-read new content</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Automatically read new content when it appears
+                  </p>
+                </div>
+                <Switch
+                  id="auto-read-setting"
+                  checked={settings.autoRead}
+                  onCheckedChange={(checked) => {
+                    setSettings(prev => ({ ...prev, autoRead: checked }))
+                    announceToUser(`Auto-read ${checked ? 'enabled' : 'disabled'}`)
+                  }}
+                />
+              </div>
+
+              {/* Test Voice Settings */}
+              <div className="pt-4 border-t">
+                <Button
+                  size="lg"
+                  onClick={testVoiceSettings}
+                  disabled={!isSpeechSupported}
+                  className="w-full"
+                  aria-label="Test current voice settings"
+                >
+                  <Volume2 className="h-5 w-5 mr-2" />
+                  Test Voice Settings
+                </Button>
+              </div>
+
+              {/* Reset to Defaults */}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSettings({
+                    rate: 1,
+                    pitch: 1,
+                    voice: availableVoices.find(v => v.lang.startsWith('en'))?.name || '',
+                    autoRead: true
+                  })
+                  announceToUser('Voice settings reset to defaults')
+                }}
+                className="w-full"
+                aria-label="Reset voice settings to defaults"
+              >
+                Reset to Defaults
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
