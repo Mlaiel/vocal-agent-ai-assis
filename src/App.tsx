@@ -12,7 +12,9 @@ import { Progress } from '@/components/ui/progress'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import { Microphone, Speaker, AlertTriangle, Play, Pause, Square, Volume2 } from '@phosphor-icons/react'
+import { Input } from '@/components/ui/input'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Microphone, Speaker, AlertTriangle, Play, Pause, Square, Volume2, Camera, Eye, Upload } from '@phosphor-icons/react'
 import { useKV } from '@github/spark/hooks'
 import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
@@ -41,6 +43,10 @@ export default function App() {
   const [error, setError] = useState('')
   const [isRecognitionSupported, setIsRecognitionSupported] = useState(false)
   const [isSpeechSupported, setIsSpeechSupported] = useState(false)
+  const [selectedImage, setSelectedImage] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string>('')
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isCameraActive, setIsCameraActive] = useState(false)
   
   const [settings, setSettings] = useKV<VoiceSettings>('voice-settings', {
     rate: 1,
@@ -52,6 +58,9 @@ export default function App() {
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     // Check Web Speech API support
@@ -225,7 +234,141 @@ export default function App() {
     toast.error(alertMessage)
   }
 
-  return (
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file && file.type.startsWith('image/')) {
+      setSelectedImage(file)
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setImagePreview(e.target?.result as string)
+      }
+      reader.readAsDataURL(file)
+      announceToUser('Image selected for analysis')
+    }
+  }
+
+  const analyzeImage = async () => {
+    if (!selectedImage) {
+      announceToUser('Please select an image first')
+      return
+    }
+
+    setIsAnalyzing(true)
+    announceToUser('Analyzing image...')
+
+    try {
+      // Convert image to base64
+      const reader = new FileReader()
+      reader.onload = async (e) => {
+        const base64Data = e.target?.result as string
+        
+        const prompt = spark.llmPrompt`You are an AI assistant helping visually impaired users. Please provide a detailed, clear description of this image. Focus on:
+        1. What objects, people, or scenes are present
+        2. Their positions and relationships
+        3. Colors, lighting, and mood
+        4. Any text visible in the image
+        5. Any potential hazards or safety considerations
+        
+        Keep the description conversational and helpful for someone who cannot see the image. Image data: ${base64Data}`
+        
+        const description = await spark.llm(prompt)
+        
+        if (description) {
+          const fullDescription = `Image description: ${description}`
+          speakText(fullDescription)
+          setTextToRead(fullDescription)
+          toast.success('Image analyzed and described')
+        }
+      }
+      reader.readAsDataURL(selectedImage)
+    } catch (error) {
+      const errorMsg = 'Failed to analyze image'
+      setError(errorMsg)
+      announceToUser(errorMsg)
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } // Use back camera if available
+      })
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        setIsCameraActive(true)
+        announceToUser('Camera started. Use the capture button to take a photo for analysis.')
+      }
+    } catch (error) {
+      const errorMsg = 'Failed to access camera'
+      setError(errorMsg)
+      announceToUser(errorMsg)
+    }
+  }
+
+  const stopCamera = () => {
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream
+      stream.getTracks().forEach(track => track.stop())
+      videoRef.current.srcObject = null
+      setIsCameraActive(false)
+      announceToUser('Camera stopped')
+    }
+  }
+
+  const captureImage = () => {
+    if (!videoRef.current || !canvasRef.current) return
+
+    const canvas = canvasRef.current
+    const video = videoRef.current
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.drawImage(video, 0, 0)
+      
+      // Convert canvas to blob and analyze
+      canvas.toBlob(async (blob) => {
+        if (blob) {
+          const file = new File([blob], 'camera-capture.jpg', { type: 'image/jpeg' })
+          setSelectedImage(file)
+          
+          const reader = new FileReader()
+          reader.onload = (e) => {
+            setImagePreview(e.target?.result as string)
+          }
+          reader.readAsDataURL(file)
+          
+          announceToUser('Photo captured. Analyzing...')
+          
+          // Auto-analyze captured image
+          setTimeout(() => analyzeImage(), 500)
+        }
+      }, 'image/jpeg', 0.8)
+    }
+  }
+
+  const describeEnvironment = async () => {
+    announceToUser('Starting environmental description...')
+    
+    if (isCameraActive && videoRef.current) {
+      // If camera is active, capture and analyze current view
+      captureImage()
+    } else {
+      // Start camera for environmental description
+      await startCamera()
+      setTimeout(() => {
+        if (videoRef.current) {
+          captureImage()
+        }
+      }, 2000) // Give camera time to initialize
+    }
+  }
+
+    return (
     <div className="min-h-screen bg-background p-4 space-y-6">
       <Toaster />
       <header className="text-center space-y-2">
@@ -247,154 +390,271 @@ export default function App() {
         </Alert>
       )}
 
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Speech to Text */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Microphone className="h-5 w-5" />
-              Speech to Text
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex gap-2">
-              <Button
-                size="lg"
-                onClick={isListening ? stopListening : startListening}
-                disabled={!isRecognitionSupported}
-                className="flex-1"
-                aria-label={isListening ? 'Stop listening' : 'Start listening'}
-              >
-                <Microphone className="h-5 w-5 mr-2" />
-                {isListening ? 'Stop Listening' : 'Start Listening'}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={clearTranscript}
-                disabled={!transcript}
-                aria-label="Clear transcript"
-              >
-                Clear
-              </Button>
-            </div>
-            
-            {transcript && (
-              <div className="space-y-2">
-                <Label htmlFor="transcript">Transcript:</Label>
-                <Textarea
-                  id="transcript"
-                  value={transcript}
-                  onChange={(e) => setTranscript(e.target.value)}
-                  placeholder="Your speech will appear here..."
-                  className="min-h-24"
-                />
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      <Tabs defaultValue="voice" className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="voice">Voice</TabsTrigger>
+          <TabsTrigger value="vision">Vision</TabsTrigger>
+          <TabsTrigger value="actions">Actions</TabsTrigger>
+        </TabsList>
 
-        {/* Text to Speech */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Speaker className="h-5 w-5" />
-              Text to Speech
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="text-input">Enter text to read aloud:</Label>
-              <Textarea
-                id="text-input"
-                value={textToRead}
-                onChange={(e) => setTextToRead(e.target.value)}
-                placeholder="Enter text here..."
-                className="min-h-24"
-              />
-            </div>
-            
-            <div className="flex gap-2">
-              <Button
-                size="lg"
-                onClick={() => speakText(textToRead)}
-                disabled={!isSpeechSupported || !textToRead.trim()}
-                className="flex-1"
-                aria-label={isSpeaking ? 'Stop reading' : 'Read text aloud'}
-              >
-                {isSpeaking ? (
-                  <>
-                    <Pause className="h-5 w-5 mr-2" />
-                    Stop Reading
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-5 w-5 mr-2" />
-                    Read Aloud
-                  </>
+        <TabsContent value="voice" className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Speech to Text */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Microphone className="h-5 w-5" />
+                  Speech to Text
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-2">
+                  <Button
+                    size="lg"
+                    onClick={isListening ? stopListening : startListening}
+                    disabled={!isRecognitionSupported}
+                    className="flex-1"
+                    aria-label={isListening ? 'Stop listening' : 'Start listening'}
+                  >
+                    <Microphone className="h-5 w-5 mr-2" />
+                    {isListening ? 'Stop Listening' : 'Start Listening'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={clearTranscript}
+                    disabled={!transcript}
+                    aria-label="Clear transcript"
+                  >
+                    Clear
+                  </Button>
+                </div>
+                
+                {transcript && (
+                  <div className="space-y-2">
+                    <Label htmlFor="transcript">Transcript:</Label>
+                    <Textarea
+                      id="transcript"
+                      value={transcript}
+                      onChange={(e) => setTranscript(e.target.value)}
+                      placeholder="Your speech will appear here..."
+                      className="min-h-24"
+                    />
+                  </div>
                 )}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={summarizeContent}
-                disabled={!textToRead.trim()}
-                aria-label="Summarize and read"
-              >
-                Summarize
-              </Button>
-            </div>
+              </CardContent>
+            </Card>
 
-            {isSpeaking && (
-              <div className="space-y-2">
-                <Label>Reading Progress:</Label>
-                <Progress value={progress} className="w-full" />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            {/* Text to Speech */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Speaker className="h-5 w-5" />
+                  Text to Speech
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="text-input">Enter text to read aloud:</Label>
+                  <Textarea
+                    id="text-input"
+                    value={textToRead}
+                    onChange={(e) => setTextToRead(e.target.value)}
+                    placeholder="Enter text here..."
+                    className="min-h-24"
+                  />
+                </div>
+                
+                <div className="flex gap-2">
+                  <Button
+                    size="lg"
+                    onClick={() => speakText(textToRead)}
+                    disabled={!isSpeechSupported || !textToRead.trim()}
+                    className="flex-1"
+                    aria-label={isSpeaking ? 'Stop reading' : 'Read text aloud'}
+                  >
+                    {isSpeaking ? (
+                      <>
+                        <Pause className="h-5 w-5 mr-2" />
+                        Stop Reading
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-5 w-5 mr-2" />
+                        Read Aloud
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={summarizeContent}
+                    disabled={!textToRead.trim()}
+                    aria-label="Summarize and read"
+                  >
+                    Summarize
+                  </Button>
+                </div>
 
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Volume2 className="h-5 w-5" />
-            Quick Actions
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-4">
-            <Button
-              variant="outline"
-              onClick={() => speakText(transcript)}
-              disabled={!transcript.trim() || !isSpeechSupported}
-              aria-label="Read transcript aloud"
-            >
-              <Speaker className="h-4 w-4 mr-2" />
-              Read Transcript
-            </Button>
-            
-            <Button
-              variant="destructive"
-              onClick={sendSafetyAlert}
-              aria-label="Send safety alert"
-            >
-              <AlertTriangle className="h-4 w-4 mr-2" />
-              Safety Alert
-            </Button>
-
-            <div className="flex items-center space-x-2">
-              <Switch
-                id="auto-read"
-                checked={settings.autoRead}
-                onCheckedChange={(checked) => 
-                  setSettings(prev => ({ ...prev, autoRead: checked }))
-                }
-              />
-              <Label htmlFor="auto-read">Auto-read new content</Label>
-            </div>
+                {isSpeaking && (
+                  <div className="space-y-2">
+                    <Label>Reading Progress:</Label>
+                    <Progress value={progress} className="w-full" />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
-        </CardContent>
-      </Card>
+        </TabsContent>
+
+        <TabsContent value="vision" className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Image Analysis */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Eye className="h-5 w-5" />
+                  Image Analysis
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="image-upload">Upload an image to analyze:</Label>
+                  <Input
+                    id="image-upload"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    ref={fileInputRef}
+                    className="cursor-pointer"
+                  />
+                </div>
+
+                {imagePreview && (
+                  <div className="space-y-2">
+                    <Label>Selected Image:</Label>
+                    <img
+                      src={imagePreview}
+                      alt="Selected for analysis"
+                      className="w-full max-h-48 object-contain rounded-md border"
+                    />
+                  </div>
+                )}
+
+                <Button
+                  size="lg"
+                  onClick={analyzeImage}
+                  disabled={!selectedImage || isAnalyzing}
+                  className="w-full"
+                  aria-label="Analyze selected image"
+                >
+                  <Upload className="h-5 w-5 mr-2" />
+                  {isAnalyzing ? 'Analyzing...' : 'Analyze Image'}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Live Camera */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Camera className="h-5 w-5" />
+                  Live Camera
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {isCameraActive && (
+                  <div className="space-y-2">
+                    <Label>Camera View:</Label>
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      className="w-full max-h-48 rounded-md border bg-black"
+                    />
+                    <canvas ref={canvasRef} className="hidden" />
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Button
+                    onClick={isCameraActive ? stopCamera : startCamera}
+                    className="flex-1"
+                    aria-label={isCameraActive ? 'Stop camera' : 'Start camera'}
+                  >
+                    <Camera className="h-5 w-5 mr-2" />
+                    {isCameraActive ? 'Stop Camera' : 'Start Camera'}
+                  </Button>
+                  
+                  {isCameraActive && (
+                    <Button
+                      onClick={captureImage}
+                      variant="outline"
+                      aria-label="Capture and analyze current view"
+                    >
+                      Capture
+                    </Button>
+                  )}
+                </div>
+
+                <Button
+                  size="lg"
+                  onClick={describeEnvironment}
+                  className="w-full"
+                  variant="secondary"
+                  aria-label="Describe current environment"
+                >
+                  <Eye className="h-5 w-5 mr-2" />
+                  Describe Environment
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="actions" className="space-y-6">
+          {/* Quick Actions */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Volume2 className="h-5 w-5" />
+                Quick Actions
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-4">
+                <Button
+                  variant="outline"
+                  onClick={() => speakText(transcript)}
+                  disabled={!transcript.trim() || !isSpeechSupported}
+                  aria-label="Read transcript aloud"
+                >
+                  <Speaker className="h-4 w-4 mr-2" />
+                  Read Transcript
+                </Button>
+                
+                <Button
+                  variant="destructive"
+                  onClick={sendSafetyAlert}
+                  aria-label="Send safety alert"
+                >
+                  <AlertTriangle className="h-4 w-4 mr-2" />
+                  Safety Alert
+                </Button>
+
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="auto-read"
+                    checked={settings.autoRead}
+                    onCheckedChange={(checked) => 
+                      setSettings(prev => ({ ...prev, autoRead: checked }))
+                    }
+                  />
+                  <Label htmlFor="auto-read">Auto-read new content</Label>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Status */}
       <div className="text-center text-sm text-muted-foreground space-y-1">
