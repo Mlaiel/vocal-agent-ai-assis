@@ -15,6 +15,15 @@ import { Label } from '@/components/ui/label'
 import { Microphone, Speaker, AlertTriangle, Play, Pause, Square, Volume2 } from '@phosphor-icons/react'
 import { useKV } from '@github/spark/hooks'
 import { toast } from 'sonner'
+import { Toaster } from '@/components/ui/sonner'
+
+// Extend window interface for Web Speech API
+declare global {
+  interface Window {
+    webkitSpeechRecognition: any;
+    SpeechRecognition: any;
+  }
+}
 
 interface VoiceSettings {
   rate: number
@@ -218,6 +227,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background p-4 space-y-6">
+      <Toaster />
       <header className="text-center space-y-2">
         <h1 className="text-3xl font-bold text-foreground">
           Vocal-Agent
