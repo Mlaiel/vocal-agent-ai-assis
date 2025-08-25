@@ -2,7 +2,7 @@
   "name": "Vocal-Agent - AI Voice Assistant",
   "short_name": "Vocal-Agent",
   "description": "AI Voice Assistant for Accessibility - Speech to text, text to speech, and image analysis",
-  "start_url": "/",
+  "start_url": "/vocal-agent-ai-assis/",
   "display": "standalone",
   "orientation": "portrait-primary",
   "theme_color": "#1a1a1a",

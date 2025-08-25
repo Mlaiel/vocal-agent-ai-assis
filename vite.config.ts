@@ -10,6 +10,7 @@ const projectRoot = process.env.PROJECT_ROOT || import.meta.dirname
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/vocal-agent-ai-assis/', // GitHub Pages base path
   plugins: [
     react(),
     tailwindcss(),
@@ -22,4 +23,22 @@ export default defineConfig({
       '@': resolve(projectRoot, 'src')
     }
   },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: false,
+    minify: 'terser',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          ui: ['@radix-ui/react-accordion', '@radix-ui/react-alert-dialog']
+        }
+      }
+    }
+  },
+  server: {
+    port: 5000,
+    host: true
+  }
 });
